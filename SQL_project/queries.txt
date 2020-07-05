@@ -1,0 +1,167 @@
+
+/* ---------- Query 1 - Top 10 Renting Countries rentals---------- */
+
+
+WITH t1 AS (SELECT custom.customer_id, 
+                   pay.rental_id
+              FROM country AS countr
+                   JOIN city AS ci
+                    ON countr.country_id = ci.country_id
+                   JOIN address add
+                    ON ci.city_id = add.city_id
+                   JOIN customer custom
+                    ON add.address_id = custom.address_id
+                   JOIN payment pay
+                    ON custom.customer_id = pay.customer_id
+                   JOIN (
+                        SELECT countr.country_id
+                          FROM country AS countr
+                               JOIN city AS ci
+                                ON countr.country_id = ci.country_id
+                               JOIN address add
+                                ON ci.city_id = add.city_id
+                               JOIN customer custom
+                                ON add.address_id = custom.address_id
+                               JOIN payment pay
+                                ON custom.customer_id = pay.customer_id
+                         GROUP BY 1
+                         ORDER BY SUM(pay.amount) DESC
+                         LIMIT 10) subb
+                 ON subb.country_id = countr.country_id),
+					
+     t2 AS (SELECT cat.name,
+                   COUNT(rent.rental_id) AS top10_count
+              FROM t1
+                   JOIN rental AS rent
+                    ON rent.rental_id = t1.rental_id
+                   JOIN inventory AS inv
+                    ON inv.inventory_id = rent.inventory_id
+                   JOIN film fi
+                    ON fi.film_id = inv.film_id
+                   JOIN film_category fcat
+                    ON fi.film_id = fcat.film_id
+                   JOIN category cat
+                    ON cat.category_id = fcat.category_id
+             GROUP BY 1),
+
+     t3 AS (SELECT cat.name,
+                   COUNT(rent.rental_id) AS rental_count
+              FROM rental AS rent
+                   JOIN inventory AS inv
+                    ON inv.inventory_id = rent.inventory_id
+                   JOIN film fi
+                    ON fi.film_id = inv.film_id
+                   JOIN film_category fcat
+                    ON fi.film_id = fcat.film_id
+                   JOIN category cat
+                    ON cat.category_id = fcat.category_id
+             GROUP BY 1)
+		
+SELECT t2.name AS categories,
+       t3.rental_count - t2.top10_count AS others_countries,
+       t2.top10_count,
+       CAST(t2.top10_count*100 AS FLOAT)/t3.rental_count AS "proport(%)"
+  FROM t2
+       JOIN t3
+        ON t2.name = t3.name
+ ORDER BY 2 DESC;
+
+
+
+
+
+/* ---------- Query 2 - Catagories wise films rentals ditributions ---------- */
+
+SELECT fi.title,
+       cat.name,
+       COUNT(rent.rental_id) AS rental_count,
+       NTILE(4) OVER (PARTITION BY cat.name ORDER BY COUNT(rent.rental_id))
+  FROM category AS cat
+       JOIN film_category AS fcat
+        ON cat.category_id = fcat.category_id
+       JOIN film AS fi
+        ON fi.film_id = fcat.film_id
+       JOIN inventory AS inv
+        ON fi.film_id = inv.film_id
+       JOIN rental AS rent
+        ON inv.inventory_id = rent.inventory_id
+ GROUP BY 1, 2
+ ORDER BY 2 DESC, 4;
+
+
+
+
+/* ---------- Query 3 - Money spent by the main 10 paying clients among February and April 2007 ---------- */
+
+WITH t1 AS (SELECT (first_name || ' ' || last_name) AS names, 
+                   custom.customer_id, 
+                   pay.amount, 
+                   pay.payment_date
+              FROM customer AS custom
+                   JOIN payment AS pay
+                    ON custom.customer_id = pay.customer_id),
+
+     t2 AS (SELECT t1.customer_id
+              FROM t1
+             GROUP BY 1
+             ORDER BY SUM(t1.amount) DESC
+             LIMIT 10),
+
+     t3 AS (SELECT t1.names,
+                   DATE_TRUNC('month', t1.payment_date) AS payed_mon, 
+                   COUNT(*) AS pay_countpmon,
+                   SUM(t1.amount) AS payed_amount
+              FROM t1
+                   JOIN t2
+                    ON t1.customer_id = t2.customer_id
+              WHERE t1.payment_date BETWEEN '20070101' AND '20080101'
+              GROUP BY 1, 2
+              ORDER BY 1, 3, 2)
+
+SELECT t3.names,
+       t3.payed_mon,
+       t3.payed_amount,
+	    ROUND(AVG(t3.payed_amount) OVER (PARTITION BY t3.names), 2) AS average_amounts					
+  FROM t3
+ ORDER BY 1, 2;
+
+
+
+
+
+
+
+/* ---------- Query 4 - Catagories wise films rentals ditributions using window ---------- */
+
+WITH t1 AS (SELECT custom.customer_id, 
+                   pay.amount, 
+                   DATE_TRUNC('month', pay.payment_date) AS payment_date,
+			         pay.rental_id
+              FROM customer AS custom
+                   JOIN payment AS pay
+                    ON custom.customer_id = pay.customer_id),
+
+     t2 AS (SELECT t1.customer_id, 
+		   t1.payment_date,
+                   SUM(t1.amount) AS total_amount_paid,
+                   LEAD(SUM(t1.amount)) OVER(win) AS leading_number,
+                   LEAD(SUM(t1.amount)) OVER(win) - SUM(t1.amount) AS leading_diff,
+                   CASE 
+                       WHEN LEAD(SUM(t1.amount)) OVER(win) - SUM(t1.amount) < 0 THEN 0
+                       WHEN LEAD(SUM(t1.amount)) OVER(win) - SUM(t1.amount) >= 0 THEN 1
+                   END AS progress
+              FROM t1
+                   JOIN rental AS rent
+                    ON rent.rental_id = t1.rental_id
+                    AND t1.customer_id = rent.customer_id
+             GROUP BY 1, 2
+            WINDOW win AS (PARTITION BY t1.customer_id ORDER BY DATE_TRUNC('month', t1.payment_date)))
+										  
+SELECT t2.payment_date,
+       COUNT(*) AS total_counting,
+       SUM(t2.progress) AS progressive_bymons,
+       COUNT(*) - SUM(t2.progress) AS regression_bymons
+  FROM t2
+ WHERE t2.progress IS NOT NULL
+ GROUP BY 1
+ ORDER BY 1;

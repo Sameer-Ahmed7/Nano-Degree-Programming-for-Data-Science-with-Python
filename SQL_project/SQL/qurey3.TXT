@@ -1,0 +1,33 @@
+/* ---------- Query 3 - Money spent by the main 10 paying clients among February and April 2007 ---------- */
+
+WITH t1 AS (SELECT (first_name || ' ' || last_name) AS names, 
+                   custom.customer_id, 
+                   pay.amount, 
+                   pay.payment_date
+              FROM customer AS custom
+                   JOIN payment AS pay
+                    ON custom.customer_id = pay.customer_id),
+
+     t2 AS (SELECT t1.customer_id
+              FROM t1
+             GROUP BY 1
+             ORDER BY SUM(t1.amount) DESC
+             LIMIT 10),
+
+     t3 AS (SELECT t1.names,
+                   DATE_TRUNC('month', t1.payment_date) AS payed_mon, 
+                   COUNT(*) AS pay_countpmon,
+                   SUM(t1.amount) AS payed_amount
+              FROM t1
+                   JOIN t2
+                    ON t1.customer_id = t2.customer_id
+              WHERE t1.payment_date BETWEEN '20070101' AND '20080101'
+              GROUP BY 1, 2
+              ORDER BY 1, 3, 2)
+
+SELECT t3.names,
+       t3.payed_mon,
+       t3.payed_amount,
+	    ROUND(AVG(t3.payed_amount) OVER (PARTITION BY t3.names), 2) AS average_amounts					
+  FROM t3
+ ORDER BY 1, 2;

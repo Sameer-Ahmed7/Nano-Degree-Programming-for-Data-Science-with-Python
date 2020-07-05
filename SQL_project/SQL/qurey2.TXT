@@ -1,0 +1,17 @@
+/* ---------- Query 2 - Catagories wise films rentals ditributions ---------- */
+
+SELECT fi.title,
+       cat.name,
+       COUNT(rent.rental_id) AS rental_count,
+       NTILE(4) OVER (PARTITION BY cat.name ORDER BY COUNT(rent.rental_id))
+  FROM category AS cat
+       JOIN film_category AS fcat
+        ON cat.category_id = fcat.category_id
+       JOIN film AS fi
+        ON fi.film_id = fcat.film_id
+       JOIN inventory AS inv
+        ON fi.film_id = inv.film_id
+       JOIN rental AS rent
+        ON inv.inventory_id = rent.inventory_id
+ GROUP BY 1, 2
+ ORDER BY 2 DESC, 4;

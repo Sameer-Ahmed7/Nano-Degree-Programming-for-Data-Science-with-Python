@@ -1,0 +1,34 @@
+/* ---------- Query 4 - Catagories wise films rentals ditributions using window ---------- */
+
+WITH t1 AS (SELECT custom.customer_id, 
+                   pay.amount, 
+                   DATE_TRUNC('month', pay.payment_date) AS payment_date,
+			         pay.rental_id
+              FROM customer AS custom
+                   JOIN payment AS pay
+                    ON custom.customer_id = pay.customer_id),
+
+     t2 AS (SELECT t1.customer_id, 
+		   t1.payment_date,
+                   SUM(t1.amount) AS total_amount_paid,
+                   LEAD(SUM(t1.amount)) OVER(win) AS leading_number,
+                   LEAD(SUM(t1.amount)) OVER(win) - SUM(t1.amount) AS leading_diff,
+                   CASE 
+                       WHEN LEAD(SUM(t1.amount)) OVER(win) - SUM(t1.amount) < 0 THEN 0
+                       WHEN LEAD(SUM(t1.amount)) OVER(win) - SUM(t1.amount) >= 0 THEN 1
+                   END AS progress
+              FROM t1
+                   JOIN rental AS rent
+                    ON rent.rental_id = t1.rental_id
+                    AND t1.customer_id = rent.customer_id
+             GROUP BY 1, 2
+            WINDOW win AS (PARTITION BY t1.customer_id ORDER BY DATE_TRUNC('month', t1.payment_date)))
+										  
+SELECT t2.payment_date,
+       COUNT(*) AS total_counting,
+       SUM(t2.progress) AS progressive_bymons,
+       COUNT(*) - SUM(t2.progress) AS regression_bymons
+  FROM t2
+ WHERE t2.progress IS NOT NULL
+ GROUP BY 1
+ ORDER BY 1;
